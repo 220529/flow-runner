@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>编辑器</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      height: 100vh;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #1a1a2e;
+      color: #eee;
+      display: flex;
+      flex-direction: column;
+    }
+    h1 { font-size: 16px; margin-bottom: 12px; color: #e94560; }
+    
+    /* 编辑器容器 */
+    .editor-container {
+      flex: 1;
+      position: relative;
+      border: 1px solid #0f3460;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    
+    /* 高亮层和输入层重叠 */
+    .editor-highlight, .editor-input {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      padding: 12px;
+      font-size: 14px;
+      font-family: 'Consolas', 'Monaco', monospace;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      overflow: auto;
+    }
+    
+    .editor-highlight {
+      background: #16213e;
+      color: #fff;
+      pointer-events: none;
+      z-index: 1;
+    }
+    
+    .editor-input {
+      background: transparent;
+      color: transparent;
+      caret-color: #e94560;
+      border: none;
+      resize: none;
+      z-index: 2;
+      outline: none;
+    }
+    
+    /* SQL 语法高亮 */
+    .sql-keyword { color: #ff79c6; font-weight: bold; }
+    .sql-function { color: #8be9fd; }
+    .sql-string { color: #f1fa8c; }
+    .sql-number { color: #bd93f9; }
+    .sql-comment { color: #6272a4; font-style: italic; }
+    .sql-operator { color: #ff79c6; }
+    
+    .btn-row {
+      display: flex;
+      gap: 12px;
+      margin-top: 12px;
+    }
+    button {
+      flex: 1;
+      padding: 12px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-confirm { background: #e94560; color: #fff; }
+    .btn-confirm:hover { background: #ff6b6b; }
+    .btn-cancel { background: #0f3460; color: #fff; }
+    .btn-cancel:hover { background: #1a4a7a; }
+    .btn-copy { background: #1a4a7a; color: #fff; }
+    .btn-copy:hover { background: #2a5a8a; }
+    
+    .tip {
+      font-size: 12px;
+      color: #666;
+      margin-top: 8px;
+    }
+    
+    /* 自动补全下拉框 */
+    .autocomplete {
+      display: none;
+      position: absolute;
+      background: #0f3460;
+      border: 1px solid #1a4a7a;
+      border-radius: 4px;
+      max-height: 200px;
+      overflow-y: auto;
+      z-index: 10;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+    .autocomplete-item {
+      padding: 6px 12px;
+      cursor: pointer;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 13px;
+      color: #fff;
+    }
+    .autocomplete-item:hover,
+    .autocomplete-item.active {
+      background: #e94560;
+    }
+    .autocomplete-item .type {
+      font-size: 10px;
+      color: #888;
+      margin-left: 8px;
+    }
+    .autocomplete-item.active .type {
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+  <h1 id="editorTitle">📝 编辑器</h1>
+  <div class="editor-container">
+    <div class="editor-highlight" id="highlight"></div>
+    <textarea class="editor-input" id="sqlContent" placeholder="在这里编写内容..." autofocus spellcheck="false"></textarea>
+    <!-- 自动补全下拉框 -->
+    <div class="autocomplete" id="autocomplete"></div>
+  </div>
+  <div class="btn-row">
+    <button class="btn-cancel" id="cancelBtn">取消</button>
+    <button class="btn-copy" id="copyBtn">📋 复制</button>
+    <button class="btn-confirm" id="confirmBtn">确认并关闭</button>
+  </div>
+  <div class="tip">提示：Ctrl+Enter 快速确认，ESC 取消</div>
+  
+  <script src="editor.js"></script>
+</body>
+</html>

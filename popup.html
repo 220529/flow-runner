@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 450px;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #1a1a2e;
+      color: #eee;
+    }
+    h1 { font-size: 16px; margin-bottom: 16px; }
+    
+    .row { margin-bottom: 12px; }
+    label {
+      display: block;
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 4px;
+    }
+    input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #0f3460;
+      border-radius: 6px;
+      background: #16213e;
+      color: #fff;
+      font-size: 13px;
+    }
+    input:focus, textarea:focus { outline: none; border-color: #e94560; }
+    
+    textarea {
+      width: 100%;
+      height: 120px;
+      padding: 10px 12px;
+      border: 1px solid #0f3460;
+      border-radius: 6px;
+      background: #16213e;
+      color: #fff;
+      font-size: 12px;
+      font-family: monospace;
+      resize: vertical;
+    }
+    
+    button {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 6px;
+      background: #e94560;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-bottom: 12px;
+    }
+    button:hover { background: #ff6b6b; }
+    button:disabled { background: #666; cursor: not-allowed; }
+    
+    .copy-btn {
+      width: auto;
+      padding: 4px 10px;
+      font-size: 12px;
+      margin: 0 8px 0 0;
+      background: #0f3460;
+    }
+    .copy-btn:hover { background: #1a4a7a; }
+    
+    .response-label {
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 4px;
+      display: flex;
+      justify-content: space-between;
+    }
+    .status { font-weight: 600; }
+    .status.ok { color: #4caf50; }
+    .status.fail { color: #f44336; }
+    
+    .response {
+      background: #16213e;
+      border-radius: 6px;
+      padding: 12px;
+      font-size: 12px;
+      font-family: monospace;
+      max-height: 200px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      color: #aaa;
+    }
+    
+    /* 输入框容器 */
+    .textarea-wrap {
+      position: relative;
+    }
+    .textarea-wrap textarea {
+      padding-right: 28px;
+    }
+    /* 放大按钮 - 右上角小图标 */
+    .expand-btn {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 20px;
+      height: 20px;
+      padding: 0;
+      margin: 0;
+      font-size: 11px;
+      line-height: 20px;
+      text-align: center;
+      background: rgba(15, 52, 96, 0.8);
+      border-radius: 3px;
+      opacity: 0.6;
+      cursor: pointer;
+    }
+    .expand-btn:hover {
+      opacity: 1;
+      background: #e94560;
+    }
+    
+    /* 自适应高度的 textarea */
+    .auto-height {
+      height: auto;
+      min-height: 60px;
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body>
+  <h1>🚀 Flow Runner <button id="resetBtn" style="float: right; width: auto; padding: 4px 10px; margin: 0; font-size: 12px; background: #0f3460;">重置</button></h1>
+  
+  <div class="row">
+    <label>URL（自动获取当前域名）</label>
+    <input type="text" id="url" value="/api/runFlow">
+  </div>
+  
+  <div class="row">
+    <label>flowKey</label>
+    <input type="text" id="flowId" placeholder="输入 flowKey" value="z244yolix5cg9meb">
+  </div>
+  
+  <div class="row">
+    <label>SQL 语句（可选，填写后会自动合并到参数）</label>
+    <div class="textarea-wrap">
+      <textarea id="sqlInput" placeholder="SELECT * FROM orders LIMIT 10" style="height: 60px;"></textarea>
+      <button id="expandSql" class="expand-btn" title="放大编辑">⛶</button>
+    </div>
+  </div>
+  
+  <!-- SQL 弹框 -->
+  <div id="sqlModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 100;">
+    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 600px; background: #1a1a2e; border-radius: 8px; padding: 16px; border: 1px solid #0f3460;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <label style="font-size: 14px; color: #e94560;">编辑 SQL</label>
+        <button id="closeModal" style="width: auto; padding: 4px 12px; margin: 0; background: #0f3460;">✕ 关闭</button>
+      </div>
+      <textarea id="sqlModalInput" style="height: 300px; font-size: 14px;"></textarea>
+      <button id="confirmSql" style="margin-top: 12px;">确认</button>
+    </div>
+  </div>
+  
+  <div class="row">
+    <label>请求参数 (JSON)</label>
+    <div class="textarea-wrap">
+      <textarea id="params" class="auto-height">{
+  "action": "run_sql"
+}</textarea>
+      <button id="expandParams" class="expand-btn" title="放大编辑">⛶</button>
+    </div>
+  </div>
+  
+  <button id="trigger">执行请求</button>
+  
+  <div class="response-label">
+    <span>响应结果</span>
+    <span>
+      <button class="copy-btn" id="expandResponse" title="放大查看">⛶</button>
+      <button class="copy-btn" id="copy">复制</button>
+      <span class="status" id="status"></span>
+    </span>
+  </div>
+  <div class="response" id="response">等待执行...</div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>
