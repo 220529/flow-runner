@@ -10,6 +10,9 @@ const paramsInput = document.getElementById('params');
 // 存储键名
 const STORAGE_KEY = 'flowRunnerState';
 
+// accessSecret 相关变量
+const accessSecretBtn = document.getElementById('accessSecretBtn');
+
 // 加载保存的状态
 chrome.storage.local.get([STORAGE_KEY, 'editorResult'], (data) => {
   // 恢复保存的输入
@@ -83,6 +86,92 @@ resetBtn.addEventListener('click', () => {
     chrome.storage.local.remove(STORAGE_KEY);
   }
 });
+
+// 获取 accessSecret
+if (accessSecretBtn) {
+  accessSecretBtn.addEventListener('click', async () => {
+    const apiUrl = urlInput.value.trim();
+    if (!apiUrl) {
+      showResponse('请先输入 URL', false);
+      return;
+    }
+    
+    accessSecretBtn.disabled = true;
+    const originalText = accessSecretBtn.textContent;
+    accessSecretBtn.textContent = '⏳';
+    
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      
+      const [result] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: async (apiUrl) => {
+          try {
+            const getCookie = (name) => {
+              const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+              return match ? decodeURIComponent(match[2]) : null;
+            };
+            const authorization = getCookie('Authorization');
+            
+            const response = await fetch(apiUrl, {
+              method: 'POST',
+              headers: {
+                'accept': 'application/json, text/plain, */*',
+                'accept-language': 'zh-CN,zh;q=0.9',
+                'app-version': 'v1.2.0',
+                'authorization': authorization || '',
+                'content-type': 'application/json;charset=UTF-8',
+                'cache-control': 'no-cache',
+                'pragma': 'no-cache',
+                'x-csrf-token': 'undefined'
+              },
+              credentials: 'include',
+              body: JSON.stringify({ flowId: 'b8vwkimhdmznr57l' })
+            });
+            
+            const data = await response.json();
+            return { success: response.ok, data };
+          } catch (err) {
+            return { success: false, error: err.message };
+          }
+        },
+        args: [apiUrl]
+      });
+      
+      const res = result.result;
+      if (res.success && res.data.code === 1) {
+        const secret = res.data.data?.tipData?.text;
+        if (secret) {
+          // 自动复制
+          await navigator.clipboard.writeText(secret);
+          accessSecretBtn.textContent = '✓';
+          accessSecretBtn.style.background = '#4caf50';
+          
+          // 显示提示
+          showResponse(`获取 accessSecret 成功！\n已自动复制: ${secret}`, true);
+          
+          setTimeout(() => {
+            accessSecretBtn.textContent = originalText;
+            accessSecretBtn.style.background = '#0f3460';
+          }, 2000);
+        } else {
+          throw new Error('响应数据格式不正确');
+        }
+      } else {
+        throw new Error(res.error || res.data?.message || '获取失败');
+      }
+    } catch (err) {
+      showResponse('获取 accessSecret 失败: ' + err.message, false);
+      accessSecretBtn.textContent = originalText;
+      accessSecretBtn.style.background = '#f44336';
+      setTimeout(() => {
+        accessSecretBtn.style.background = '#0f3460';
+      }, 2000);
+    } finally {
+      accessSecretBtn.disabled = false;
+    }
+  });
+}
 
 // 复制功能
 copyBtn.addEventListener('click', async () => {
