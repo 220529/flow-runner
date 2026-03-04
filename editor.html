@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>编辑器</title>
+  <title>Flow Runner - 编辑器</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -13,8 +13,35 @@
       color: #eee;
       display: flex;
       flex-direction: column;
+      gap: 12px;
     }
-    h1 { font-size: 16px; margin-bottom: 12px; color: #e94560; }
+    
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    h1 { font-size: 16px; color: #e94560; }
+    
+    .config-row {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    .config-row input {
+      flex: 1;
+      padding: 8px 12px;
+      border: 1px solid #0f3460;
+      border-radius: 6px;
+      background: #16213e;
+      color: #fff;
+      font-size: 13px;
+    }
+    .config-row label {
+      font-size: 12px;
+      color: #888;
+      min-width: 60px;
+    }
     
     /* 编辑器容器 */
     .editor-container {
@@ -23,6 +50,7 @@
       border: 1px solid #0f3460;
       border-radius: 6px;
       overflow: hidden;
+      min-height: 200px;
     }
     
     /* 高亮层和输入层重叠 */
@@ -64,12 +92,39 @@
     .sql-string { color: #f1fa8c; }
     .sql-number { color: #bd93f9; }
     .sql-comment { color: #6272a4; font-style: italic; }
-    .sql-operator { color: #ff79c6; }
+    
+    /* 响应结果区域 */
+    .response-container {
+      height: 200px;
+      border: 1px solid #0f3460;
+      border-radius: 6px;
+      background: #16213e;
+      padding: 12px;
+      overflow: auto;
+      font-size: 12px;
+      font-family: monospace;
+      white-space: pre-wrap;
+      word-break: break-all;
+      color: #aaa;
+    }
+    
+    .response-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 4px;
+    }
+    .response-header label {
+      font-size: 12px;
+      color: #888;
+    }
+    .status { font-weight: 600; font-size: 12px; }
+    .status.ok { color: #4caf50; }
+    .status.fail { color: #f44336; }
     
     .btn-row {
       display: flex;
       gap: 12px;
-      margin-top: 12px;
     }
     button {
       flex: 1;
@@ -80,17 +135,20 @@
       font-weight: 600;
       cursor: pointer;
     }
-    .btn-confirm { background: #e94560; color: #fff; }
-    .btn-confirm:hover { background: #ff6b6b; }
+    .btn-execute { background: #e94560; color: #fff; }
+    .btn-execute:hover { background: #ff6b6b; }
+    .btn-execute:disabled { background: #666; cursor: not-allowed; }
+    .btn-save { background: #4caf50; color: #fff; }
+    .btn-save:hover { background: #66bb6a; }
     .btn-cancel { background: #0f3460; color: #fff; }
     .btn-cancel:hover { background: #1a4a7a; }
-    .btn-copy { background: #1a4a7a; color: #fff; }
+    .btn-copy { background: #1a4a7a; color: #fff; flex: 0 0 auto; padding: 8px 16px; }
     .btn-copy:hover { background: #2a5a8a; }
     
     .tip {
       font-size: 12px;
       color: #666;
-      margin-top: 8px;
+      text-align: center;
     }
     
     /* 自动补全下拉框 */
@@ -127,19 +185,34 @@
   </style>
 </head>
 <body>
-  <h1 id="editorTitle">📝 编辑器</h1>
+  <div class="header">
+    <h1 id="editorTitle">🚀 Flow Runner - 编辑器</h1>
+  </div>
+  
   <div class="editor-container">
     <div class="editor-highlight" id="highlight"></div>
-    <textarea class="editor-input" id="sqlContent" placeholder="在这里编写内容..." autofocus spellcheck="false"></textarea>
+    <textarea class="editor-input" id="sqlContent" placeholder="在这里编写 SQL..." autofocus spellcheck="false"></textarea>
     <!-- 自动补全下拉框 -->
     <div class="autocomplete" id="autocomplete"></div>
   </div>
-  <div class="btn-row">
-    <button class="btn-cancel" id="cancelBtn">取消</button>
-    <button class="btn-copy" id="copyBtn">📋 复制</button>
-    <button class="btn-confirm" id="confirmBtn">确认并关闭</button>
+  
+  <div class="response-header">
+    <label>执行结果</label>
+    <div id="resultActions" style="display: none;">
+      <button class="btn-copy" id="openInTabBtn">🔗 新标签页查看</button>
+      <button class="btn-copy" id="copyResultBtn">📋 复制</button>
+      <span class="status" id="status"></span>
+    </div>
+    <span class="status" id="statusOnly" style="display: none;"></span>
   </div>
-  <div class="tip">提示：Ctrl+Enter 快速确认，ESC 取消</div>
+  <div class="response-container" id="response">等待执行...</div>
+  
+  <div class="btn-row">
+    <button class="btn-cancel" id="cancelBtn">关闭</button>
+    <button class="btn-copy" id="copyEditorBtn" style="display: none; flex: 1; padding: 12px; font-size: 14px; font-weight: 600;">📋 复制</button>
+    <button class="btn-execute" id="executeBtn">▶ 执行</button>
+  </div>
+  <div class="tip" id="tipText">提示：Ctrl+Enter 快速执行，ESC 关闭</div>
   
   <script src="editor.js"></script>
 </body>

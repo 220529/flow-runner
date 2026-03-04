@@ -1,29 +1,74 @@
 const textarea = document.getElementById('sqlContent');
 const highlight = document.getElementById('highlight');
 const autocomplete = document.getElementById('autocomplete');
-const confirmBtn = document.getElementById('confirmBtn');
+const executeBtn = document.getElementById('executeBtn');
 const cancelBtn = document.getElementById('cancelBtn');
+const copyEditorBtn = document.getElementById('copyEditorBtn');
+const responseDiv = document.getElementById('response');
+const statusSpan = document.getElementById('status');
+const statusOnly = document.getElementById('statusOnly');
+const copyResultBtn = document.getElementById('copyResultBtn');
+const openInTabBtn = document.getElementById('openInTabBtn');
+const resultActions = document.getElementById('resultActions');
 
-// 从 URL 参数获取初始值和类型
+// 存储最新的响应数据
+let latestResponse = null;
+
+// 从 URL 参数获取初始值和配置
 const params = new URLSearchParams(window.location.search);
 const initialValue = params.get('value') || '';
 const editorType = params.get('type') || 'sql';
+const apiUrl = params.get('url') || '';
+const flowKey = params.get('flowKey') || '';
+const requestParams = params.get('params') || '{"action": "run_sql"}';
+const targetTabId = parseInt(params.get('tabId')) || null;
 
-// 设置标题
-const titles = {
-  sql: '📝 SQL 编辑器',
-  params: '📝 JSON 编辑器',
-  response: '📋 响应结果'
-};
-document.getElementById('editorTitle').textContent = titles[editorType] || '📝 编辑器';
+// 设置初始值
+textarea.value = initialValue;
 
-// 响应结果只读
-if (editorType === 'response') {
+// 根据类型设置标题和功能
+const editorTitle = document.getElementById('editorTitle');
+const tipText = document.getElementById('tipText');
+
+if (editorType === 'sql') {
+  editorTitle.textContent = '🚀 Flow Runner - SQL 编辑器';
+  tipText.textContent = '提示：Ctrl+Enter 执行，Ctrl+/ 注释，Tab 缩进，ESC 关闭';
+} else if (editorType === 'params') {
+  editorTitle.textContent = '🚀 Flow Runner - 请求参数编辑器';
+  // 请求参数：隐藏执行按钮和响应区域，只用于编辑
+  executeBtn.style.display = 'none';
+  document.querySelector('.response-header').style.display = 'none';
+  document.querySelector('.response-container').style.display = 'none';
+  tipText.textContent = '提示：Tab 缩进，ESC 关闭';
+  cancelBtn.textContent = '确认';
+} else if (editorType === 'response') {
+  editorTitle.textContent = '🚀 Flow Runner - 响应结果';
   textarea.readOnly = true;
-  confirmBtn.textContent = '关闭';
+  textarea.style.cursor = 'default';
+  // 响应结果：只读模式，显示复制按钮
+  executeBtn.style.display = 'none';
+  copyEditorBtn.style.display = 'block';
+  document.querySelector('.response-header').style.display = 'none';
+  document.querySelector('.response-container').style.display = 'none';
+  tipText.textContent = '提示：Ctrl+F 查找，ESC 关闭';
+  cancelBtn.textContent = '关闭';
 }
 
-textarea.value = initialValue;
+// 自动保存内容（响应结果除外）
+let saveTimeout;
+if (editorType !== 'response') {
+  textarea.addEventListener('input', () => {
+    clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(() => {
+      const dataToSave = { type: editorType, value: textarea.value };
+      chrome.storage.local.set({ editorResult: dataToSave });
+      chrome.runtime.sendMessage({
+        action: 'editorResult',
+        data: dataToSave
+      }).catch(() => {});
+    }, 500); // 500ms 防抖
+  });
+}
 
 // SQL 关键词
 const SQL_KEYWORDS = [
@@ -350,8 +395,10 @@ function updateHighlight() {
   const code = textarea.value;
   if (editorType === 'sql') {
     highlight.innerHTML = highlightSQL(code) + '\n';
-  } else {
+  } else if (editorType === 'params' || editorType === 'response') {
     highlight.innerHTML = highlightJSON(code) + '\n';
+  } else {
+    highlight.innerHTML = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '\n';
   }
 }
 
@@ -368,34 +415,240 @@ textarea.addEventListener('scroll', syncScroll);
 // 初始化高亮
 updateHighlight();
 
-// 确认并关闭
-confirmBtn.addEventListener('click', () => {
-  chrome.storage.local.set({ 
-    editorResult: { type: editorType, value: textarea.value }
-  }, () => {
-    window.close();
+// 执行请求（仅 SQL 类型）
+if (editorType === 'sql') {
+  executeBtn.addEventListener('click', async () => {
+    const content = textarea.value.trim();
+    const flowId = flowKey.trim();
+    
+    if (!content) {
+      showResponse(editorType === 'sql' ? '请输入 SQL 语句' : '请输入请求参数', false);
+      return;
+    }
+    
+    if (!flowId) {
+      showResponse('错误：flowKey 未设置', false);
+      return;
+    }
+    
+    if (!targetTabId) {
+      showResponse('错误：无法获取目标标签页', false);
+      return;
+    }
+    
+    executeBtn.disabled = true;
+    executeBtn.textContent = '执行中...';
+    showResponse('正在执行...', null);
+    
+    try {
+      // SQL 模式：解析请求参数并合并 SQL
+      let params;
+      try {
+        params = JSON.parse(requestParams);
+      } catch (e) {
+        params = { action: 'run_sql' };
+      }
+      params.sql = content;
+      const body = { ...params, flowId };
+      // 在目标页面执行请求（获取 Cookie）
+      const [result] = await chrome.scripting.executeScript({
+        target: { tabId: targetTabId },
+        func: async (apiUrl, body) => {
+          try {
+            const getCookie = (name) => {
+              const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+              return match ? decodeURIComponent(match[2]) : null;
+            };
+            const authorization = getCookie('Authorization');
+            
+            const response = await fetch(apiUrl, {
+              method: 'POST',
+              headers: {
+                'accept': 'application/json, text/plain, */*',
+                'accept-language': 'zh-CN,zh;q=0.9',
+                'app-version': 'v1.2.0',
+                'authorization': authorization || '',
+                'content-type': 'application/json;charset=UTF-8',
+                'x-csrf-token': 'undefined'
+              },
+              credentials: 'include',
+              body: JSON.stringify(body)
+            });
+            
+            const data = await response.json();
+            return { success: response.ok, status: response.status, data };
+          } catch (err) {
+            return { success: false, error: err.message };
+          }
+        },
+        args: [apiUrl, body]
+      });
+      
+      const res = result.result;
+      if (res.error) {
+        showResponse(res.error, false);
+      } else {
+        showResponse(JSON.stringify(res.data, null, 2), res.success);
+      }
+    } catch (err) {
+      showResponse('执行失败: ' + err.message, false);
+    } finally {
+      executeBtn.disabled = false;
+      executeBtn.textContent = '▶ 执行';
+    }
   });
-});
+}
 
-// 取消
+// 显示响应结果（增强错误提示）
+function showResponse(text, success) {
+  responseDiv.textContent = text;
+  latestResponse = text;
+  
+  if (success === true) {
+    // 成功：显示操作按钮
+    resultActions.style.display = 'block';
+    statusOnly.style.display = 'none';
+    statusSpan.textContent = '✓ 成功';
+    statusSpan.className = 'status ok';
+  } else if (success === false) {
+    // 失败：只显示状态，并尝试解析错误
+    resultActions.style.display = 'none';
+    statusOnly.style.display = 'inline';
+    statusOnly.textContent = '✗ 失败';
+    statusOnly.className = 'status fail';
+    
+    // 尝试美化错误信息
+    try {
+      const errorObj = JSON.parse(text);
+      if (errorObj.message || errorObj.error) {
+        const errorMsg = errorObj.message || errorObj.error;
+        const errorCode = errorObj.code || errorObj.status || '';
+        responseDiv.textContent = `❌ 错误 ${errorCode}\n\n${errorMsg}\n\n完整响应：\n${text}`;
+      }
+    } catch (e) {
+      // 不是 JSON，保持原样
+    }
+  } else {
+    // 执行中：隐藏所有
+    resultActions.style.display = 'none';
+    statusOnly.style.display = 'none';
+  }
+}
+
+// 取消/确认按钮
 cancelBtn.addEventListener('click', () => {
+  if (editorType === 'params') {
+    // 请求参数：保存并关闭
+    const dataToSave = { type: 'params', value: textarea.value };
+    chrome.storage.local.set({ editorResult: dataToSave });
+    chrome.runtime.sendMessage({
+      action: 'editorResult',
+      data: dataToSave
+    }).catch(() => {});
+  }
   window.close();
 });
 
-// 复制
-const copyBtn = document.getElementById('copyBtn');
-copyBtn.addEventListener('click', async () => {
-  await navigator.clipboard.writeText(textarea.value);
-  copyBtn.textContent = '✓ 已复制';
-  setTimeout(() => copyBtn.textContent = '📋 复制', 1500);
+// 复制结果
+copyResultBtn.addEventListener('click', async () => {
+  await navigator.clipboard.writeText(responseDiv.textContent);
+  copyResultBtn.textContent = '✓ 已复制';
+  setTimeout(() => copyResultBtn.textContent = '📋 复制', 1500);
 });
 
-// Ctrl+Enter 快速确认
-document.addEventListener('keydown', (e) => {
-  if (e.ctrlKey && e.key === 'Enter') {
-    confirmBtn.click();
+// 复制编辑器内容（用于响应结果类型）
+copyEditorBtn.addEventListener('click', async () => {
+  await navigator.clipboard.writeText(textarea.value);
+  copyEditorBtn.textContent = '✓ 已复制';
+  setTimeout(() => copyEditorBtn.textContent = '📋 复制', 1500);
+});
+
+// 在新标签页查看结果（纯 JSON，无 UI），并关闭编辑器窗口
+openInTabBtn.addEventListener('click', () => {
+  if (!latestResponse) return;
+  
+  try {
+    // 尝试解析并格式化 JSON
+    const json = JSON.parse(latestResponse);
+    const formatted = JSON.stringify(json, null, 2);
+    
+    // 创建纯文本 Blob
+    const blob = new Blob([formatted], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    
+    // 打开新标签页
+    chrome.tabs.create({ url: url }, () => {
+      // 关闭编辑器窗口
+      window.close();
+    });
+  } catch (e) {
+    // 不是 JSON，直接显示原文本
+    const blob = new Blob([latestResponse], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    chrome.tabs.create({ url: url }, () => {
+      // 关闭编辑器窗口
+      window.close();
+    });
   }
+});
+
+// Ctrl+Enter 快速执行，Ctrl+/ 注释
+document.addEventListener('keydown', (e) => {
+  // Ctrl+Enter 执行
+  if (e.ctrlKey && e.key === 'Enter' && editorType === 'sql') {
+    e.preventDefault();
+    executeBtn.click();
+  }
+  
+  // Ctrl+/ 注释/取消注释（仅 SQL）
+  if (e.ctrlKey && e.key === '/' && editorType === 'sql') {
+    e.preventDefault();
+    toggleComment();
+  }
+  
+  // ESC 关闭
   if (e.key === 'Escape') {
     window.close();
   }
 });
+
+// 切换注释（SQL）
+function toggleComment() {
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const text = textarea.value;
+  
+  // 找到选中区域的行范围
+  let lineStart = start;
+  while (lineStart > 0 && text[lineStart - 1] !== '\n') {
+    lineStart--;
+  }
+  
+  let lineEnd = end;
+  while (lineEnd < text.length && text[lineEnd] !== '\n') {
+    lineEnd++;
+  }
+  
+  const lines = text.substring(lineStart, lineEnd).split('\n');
+  
+  // 检查是否所有行都已注释
+  const allCommented = lines.every(line => line.trim().startsWith('--'));
+  
+  let newLines;
+  if (allCommented) {
+    // 取消注释
+    newLines = lines.map(line => line.replace(/^\s*--\s?/, ''));
+  } else {
+    // 添加注释
+    newLines = lines.map(line => line.trim() ? '-- ' + line : line);
+  }
+  
+  const newText = text.substring(0, lineStart) + newLines.join('\n') + text.substring(lineEnd);
+  textarea.value = newText;
+  
+  // 恢复选区
+  textarea.selectionStart = lineStart;
+  textarea.selectionEnd = lineStart + newLines.join('\n').length;
+  
+  updateHighlight();
+}

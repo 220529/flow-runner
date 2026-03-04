@@ -9,38 +9,46 @@ const paramsInput = document.getElementById('params');
 
 // 存储键名
 const STORAGE_KEY = 'flowRunnerState';
+const SQL_HISTORY_KEY = 'flowRunnerSqlHistory';
+const MAX_HISTORY = 10;
 
 // accessSecret 相关变量
 const accessSecretBtn = document.getElementById('accessSecretBtn');
 
 // 加载保存的状态
 chrome.storage.local.get([STORAGE_KEY, 'editorResult'], (data) => {
-  // 恢复保存的输入
-  if (data[STORAGE_KEY]) {
-    const state = data[STORAGE_KEY];
-    if (state.flowId) flowIdInput.value = state.flowId;
-    if (state.sql) sqlInput.value = state.sql;
-    if (state.params) {
-      paramsInput.value = state.params;
-      autoResizeTextarea(paramsInput);
-    }
-    if (state.response) {
-      responseDiv.textContent = state.response;
-    }
-  }
-  
-  // 检查编辑器返回的数据
+  // 先检查编辑器返回的数据（优先级最高）
   if (data.editorResult) {
     const result = data.editorResult;
+    console.log('收到编辑器返回数据:', result);
     if (result.type === 'sql') {
       sqlInput.value = result.value;
     } else if (result.type === 'params') {
       paramsInput.value = result.value;
       autoResizeTextarea(paramsInput);
     }
+    // 清除编辑器结果
     chrome.storage.local.remove('editorResult');
-    saveState();
   }
+  
+  // 恢复保存的输入
+  if (data[STORAGE_KEY]) {
+    const state = data[STORAGE_KEY];
+    if (state.flowId) flowIdInput.value = state.flowId;
+    // 只有在没有编辑器返回数据时才恢复 SQL
+    if (state.sql && !data.editorResult) {
+      sqlInput.value = state.sql;
+    }
+    // 只有在没有编辑器返回数据时才恢复参数
+    if (state.params && (!data.editorResult || data.editorResult.type !== 'params')) {
+      paramsInput.value = state.params;
+      autoResizeTextarea(paramsInput);
+    }
+    // 不再恢复 response，保持默认的"等待执行..."
+  }
+  
+  // 保存当前状态（包括编辑器返回的数据）
+  saveState();
 });
 
 // 保存状态
@@ -49,8 +57,8 @@ function saveState() {
     [STORAGE_KEY]: {
       flowId: flowIdInput.value,
       sql: sqlInput.value,
-      params: paramsInput.value,
-      response: responseDiv.textContent
+      params: paramsInput.value
+      // 不保存 response，避免旧的响应结果混淆
     }
   });
 }
@@ -217,11 +225,13 @@ btn.addEventListener('click', async () => {
   // 如果有 SQL 输入，自动合并到参数
   if (sqlText) {
     params.sql = sqlText;
+    // 保存 SQL 到历史记录
+    saveSqlHistory(sqlText);
   }
   
   btn.disabled = true;
   btn.textContent = '执行中...';
-  showResponse('正在请求...', null);
+  showResponse('正在请求...', null);  // null 表示临时状态，不会保存
   
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -288,29 +298,35 @@ function showResponse(text, success) {
     statusSpan.textContent = '';
     statusSpan.className = 'status';
   }
-  // 保存响应结果
-  saveState();
+  // 不保存响应结果到 storage
 }
 
-// SQL 弹框逻辑
+// SQL 弹框逻辑（仅保留备用的内部弹框）
 const sqlModal = document.getElementById('sqlModal');
 const sqlModalInput = document.getElementById('sqlModalInput');
 const expandSqlBtn = document.getElementById('expandSql');
-const expandParamsBtn = document.getElementById('expandParams');
 const closeModalBtn = document.getElementById('closeModal');
 const confirmSqlBtn = document.getElementById('confirmSql');
 
 // 打开独立窗口编辑器的通用函数
-function openEditor(type, value) {
+async function openEditor(type, value) {
+  // 获取当前标签页 ID
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  
   const encodedValue = encodeURIComponent(value);
-  // 获取屏幕尺寸，计算居中位置
-  const width = 700;
-  const height = 500;
-  const left = Math.round((screen.width - width) / 2);
-  const top = Math.round((screen.height - height) / 2);
+  const encodedUrl = encodeURIComponent(urlInput.value);
+  const encodedFlowKey = encodeURIComponent(flowIdInput.value);
+  const encodedParams = encodeURIComponent(paramsInput.value);
+  const tabId = tab.id;
+  
+  // 窗口尺寸和位置 - 左上角显示
+  const width = 900;
+  const height = 700;
+  const left = 50; // 左侧留 50px 边距
+  const top = 100; // 距离顶部 100px
   
   chrome.windows.create({
-    url: `editor.html?type=${type}&value=${encodedValue}`,
+    url: `editor.html?type=${type}&value=${encodedValue}&url=${encodedUrl}&flowKey=${encodedFlowKey}&params=${encodedParams}&tabId=${tabId}`,
     type: 'popup',
     width: width,
     height: height,
@@ -319,17 +335,18 @@ function openEditor(type, value) {
   });
 }
 
-// SQL 放大按钮
+// SQL 放大按钮 - 使用独立窗口
 expandSqlBtn.addEventListener('click', () => {
   openEditor('sql', sqlInput.value);
 });
 
-// 请求参数放大按钮
+// 请求参数放大按钮 - 使用独立窗口
+const expandParamsBtn = document.getElementById('expandParams');
 expandParamsBtn.addEventListener('click', () => {
   openEditor('params', paramsInput.value);
 });
 
-// 响应结果放大按钮
+// 响应结果放大按钮 - 使用独立窗口（只读）
 const expandResponseBtn = document.getElementById('expandResponse');
 expandResponseBtn.addEventListener('click', () => {
   openEditor('response', responseDiv.textContent);
@@ -340,46 +357,213 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
   if (namespace === 'local' && changes.editorResult) {
     const result = changes.editorResult.newValue;
     if (result) {
-      if (result.type === 'sql') {
-        sqlInput.value = result.value;
-      } else if (result.type === 'params') {
-        paramsInput.value = result.value;
-        autoResizeTextarea(paramsInput);
-      }
-      chrome.storage.local.remove('editorResult');
-      saveState();
+      console.log('通过 storage 监听到编辑器数据:', result);
+      applyEditorResult(result);
     }
   }
 });
 
-// 保留内部弹框作为备用（双击打开）
+// 监听来自编辑器的直接消息
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.action === 'editorResult') {
+    console.log('通过消息接收到编辑器数据:', message.data);
+    applyEditorResult(message.data);
+    sendResponse({ success: true });
+  }
+});
+
+// 应用编辑器返回的数据
+function applyEditorResult(result) {
+  if (result.type === 'sql') {
+    sqlInput.value = result.value;
+  } else if (result.type === 'params') {
+    paramsInput.value = result.value;
+    autoResizeTextarea(paramsInput);
+  } else if (result.type === 'response') {
+    // 响应结果是只读的，不需要应用回来
+    return;
+  }
+  chrome.storage.local.remove('editorResult');
+  saveState();
+}
+
+// 保留内部弹框作为备用（双击打开 SQL）
 sqlInput.addEventListener('dblclick', () => {
   sqlModalInput.value = sqlInput.value;
   sqlModal.style.display = 'block';
   sqlModalInput.focus();
 });
 
-// 关闭弹框
+// 关闭 SQL 弹框
 closeModalBtn.addEventListener('click', () => {
   sqlModal.style.display = 'none';
 });
 
-// 确认并关闭
+// 确认并关闭 SQL 弹框
 confirmSqlBtn.addEventListener('click', () => {
   sqlInput.value = sqlModalInput.value;
   sqlModal.style.display = 'none';
+  saveState();
 });
 
-// 点击遮罩关闭
+// 点击遮罩关闭 SQL 弹框
 sqlModal.addEventListener('click', (e) => {
   if (e.target === sqlModal) {
     sqlModal.style.display = 'none';
   }
 });
 
-// ESC 关闭
+// ESC 关闭 SQL 弹框
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && sqlModal.style.display === 'block') {
     sqlModal.style.display = 'none';
+  }
+});
+
+// ========== SQL 历史记录功能 ==========
+
+// 保存 SQL 到历史记录
+function saveSqlHistory(sql) {
+  if (!sql || !sql.trim()) return;
+  
+  chrome.storage.local.get([SQL_HISTORY_KEY], (data) => {
+    let history = data[SQL_HISTORY_KEY] || [];
+    
+    // 去重：如果已存在相同的 SQL，先移除
+    history = history.filter(item => item.sql !== sql);
+    
+    // 添加到开头
+    history.unshift({
+      sql: sql,
+      timestamp: Date.now(),
+      date: new Date().toLocaleString('zh-CN')
+    });
+    
+    // 只保留最近 MAX_HISTORY 条
+    history = history.slice(0, MAX_HISTORY);
+    
+    chrome.storage.local.set({ [SQL_HISTORY_KEY]: history });
+  });
+}
+
+// 加载并显示 SQL 历史记录
+function loadSqlHistory() {
+  chrome.storage.local.get([SQL_HISTORY_KEY], (data) => {
+    const history = data[SQL_HISTORY_KEY] || [];
+    const listDiv = document.getElementById('sqlHistoryList');
+    
+    if (history.length === 0) {
+      listDiv.innerHTML = '<div style="text-align: center; color: #888; padding: 40px; font-size: 14px;">📭 暂无历史记录<br><span style="font-size: 12px; margin-top: 8px; display: block;">执行 SQL 后会自动保存</span></div>';
+      return;
+    }
+    
+    listDiv.innerHTML = history.map((item, index) => `
+      <div class="history-item" data-index="${index}">
+        <div class="history-item-header">
+          <span class="history-item-time">🕐 ${item.date}</span>
+          <button class="history-item-delete" data-index="${index}" onclick="event.stopPropagation()">✕ 删除</button>
+        </div>
+        <div class="history-item-content">${item.sql}</div>
+      </div>
+    `).join('');
+    
+    // 绑定点击事件
+    listDiv.querySelectorAll('.history-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const index = parseInt(item.dataset.index);
+        sqlInput.value = history[index].sql;
+        sqlHistoryModal.style.display = 'none';
+        saveState();
+      });
+    });
+    
+    // 绑定删除按钮
+    listDiv.querySelectorAll('.history-item-delete').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const index = parseInt(btn.dataset.index);
+        deleteSqlHistoryItem(index);
+      });
+    });
+  });
+}
+
+// 删除单条历史记录
+function deleteSqlHistoryItem(index) {
+  chrome.storage.local.get([SQL_HISTORY_KEY], (data) => {
+    let history = data[SQL_HISTORY_KEY] || [];
+    history.splice(index, 1);
+    chrome.storage.local.set({ [SQL_HISTORY_KEY]: history }, () => {
+      loadSqlHistory();
+    });
+  });
+}
+
+// 清空所有历史记录
+function clearSqlHistory() {
+  if (confirm('确定要清空所有 SQL 历史记录吗？')) {
+    chrome.storage.local.set({ [SQL_HISTORY_KEY]: [] }, () => {
+      loadSqlHistory();
+    });
+  }
+}
+
+// SQL 历史记录按钮
+const sqlHistoryBtn = document.getElementById('sqlHistoryBtn');
+const sqlHistoryModal = document.getElementById('sqlHistoryModal');
+const closeSqlHistory = document.getElementById('closeSqlHistory');
+const clearSqlHistoryBtn = document.getElementById('clearSqlHistory');
+
+sqlHistoryBtn.addEventListener('click', () => {
+  loadSqlHistory();
+  sqlHistoryModal.style.display = 'block';
+});
+
+closeSqlHistory.addEventListener('click', () => {
+  sqlHistoryModal.style.display = 'none';
+});
+
+clearSqlHistoryBtn.addEventListener('click', clearSqlHistory);
+
+sqlHistoryModal.addEventListener('click', (e) => {
+  if (e.target === sqlHistoryModal) {
+    sqlHistoryModal.style.display = 'none';
+  }
+});
+
+// ========== 新标签页查看纯 JSON ==========
+
+const openJsonTabBtn = document.getElementById('openJsonTab');
+
+// 在新标签页查看纯 JSON（无任何 UI），并关闭插件
+openJsonTabBtn.addEventListener('click', () => {
+  const text = responseDiv.textContent;
+  
+  if (!text || text === '等待执行...') {
+    alert('暂无响应结果');
+    return;
+  }
+  
+  try {
+    // 尝试解析并格式化 JSON
+    const json = JSON.parse(text);
+    const formatted = JSON.stringify(json, null, 2);
+    
+    // 创建纯文本 Blob
+    const blob = new Blob([formatted], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    
+    // 打开新标签页
+    chrome.tabs.create({ url: url }, () => {
+      // 关闭插件弹窗
+      window.close();
+    });
+  } catch (e) {
+    // 不是 JSON，直接显示原文本
+    const blob = new Blob([text], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    chrome.tabs.create({ url: url }, () => {
+      // 关闭插件弹窗
+      window.close();
+    });
   }
 });

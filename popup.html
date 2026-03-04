@@ -68,6 +68,60 @@
     }
     .copy-btn:hover { background: #1a4a7a; }
     
+    /* 历史记录项 */
+    .history-item {
+      background: #16213e;
+      border: 1px solid #0f3460;
+      border-radius: 6px;
+      padding: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
+    }
+    .history-item:hover {
+      border-color: #e94560;
+      background: #1a2a4e;
+      transform: translateX(4px);
+    }
+    .history-item-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .history-item-time {
+      font-size: 11px;
+      color: #888;
+      font-family: monospace;
+    }
+    .history-item-delete {
+      padding: 3px 10px;
+      font-size: 11px;
+      background: rgba(244, 67, 54, 0.8);
+      border-radius: 4px;
+      opacity: 0.7;
+      transition: all 0.2s;
+    }
+    .history-item-delete:hover {
+      background: #f44336;
+      opacity: 1;
+    }
+    .history-item-content {
+      font-size: 13px;
+      font-family: 'Consolas', 'Monaco', monospace;
+      color: #ddd;
+      white-space: pre-wrap;
+      word-break: break-all;
+      line-height: 1.5;
+      max-height: 120px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      background: rgba(15, 52, 96, 0.3);
+      padding: 10px;
+      border-radius: 4px;
+      border-left: 3px solid #e94560;
+    }
+    
     .response-label {
       font-size: 12px;
       color: #888;
@@ -146,21 +200,38 @@
   </div>
   
   <div class="row">
-    <label>SQL 语句（可选，填写后会自动合并到参数）</label>
+    <label>
+      SQL 语句（可选，填写后会自动合并到参数）
+      <button id="sqlHistoryBtn" style="float: right; width: auto; padding: 2px 8px; margin: 0; font-size: 11px; background: #0f3460; border-radius: 4px;" title="查看历史记录">📜 历史</button>
+    </label>
     <div class="textarea-wrap">
       <textarea id="sqlInput" placeholder="SELECT * FROM orders LIMIT 10" style="height: 60px;"></textarea>
       <button id="expandSql" class="expand-btn" title="放大编辑">⛶</button>
     </div>
   </div>
   
-  <!-- SQL 弹框 -->
-  <div id="sqlModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 100;">
-    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 600px; background: #1a1a2e; border-radius: 8px; padding: 16px; border: 1px solid #0f3460;">
+  <!-- SQL 历史记录弹框 -->
+  <div id="sqlHistoryModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.95); z-index: 100;">
+    <div style="position: absolute; top: 5%; left: 5%; right: 5%; bottom: 5%; background: #1a1a2e; border-radius: 8px; padding: 16px; border: 1px solid #0f3460; display: flex; flex-direction: column;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #0f3460;">
+        <label style="font-size: 16px; color: #e94560; font-weight: 600;">📜 SQL 历史记录</label>
+        <div style="display: flex; gap: 8px;">
+          <button id="clearSqlHistory" style="width: auto; padding: 6px 12px; margin: 0; background: #f44336; font-size: 12px;">🗑️ 清空</button>
+          <button id="closeSqlHistory" style="width: auto; padding: 6px 12px; margin: 0; background: #0f3460; font-size: 12px;">✕ 关闭</button>
+        </div>
+      </div>
+      <div id="sqlHistoryList" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;"></div>
+    </div>
+  </div>
+  
+  <!-- SQL 弹框（备用，双击打开）-->
+  <div id="sqlModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.95); z-index: 100;">
+    <div style="position: absolute; top: 5%; left: 5%; right: 5%; bottom: 5%; background: #1a1a2e; border-radius: 8px; padding: 16px; border: 1px solid #0f3460; display: flex; flex-direction: column;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
         <label style="font-size: 14px; color: #e94560;">编辑 SQL</label>
         <button id="closeModal" style="width: auto; padding: 4px 12px; margin: 0; background: #0f3460;">✕ 关闭</button>
       </div>
-      <textarea id="sqlModalInput" style="height: 300px; font-size: 14px;"></textarea>
+      <textarea id="sqlModalInput" style="flex: 1; font-size: 13px; min-height: 0; line-height: 1.4;"></textarea>
       <button id="confirmSql" style="margin-top: 12px;">确认</button>
     </div>
   </div>
@@ -180,6 +251,7 @@
   <div class="response-label">
     <span>响应结果</span>
     <span>
+      <button class="copy-btn" id="openJsonTab" title="新标签页查看纯 JSON">🔗 新标签</button>
       <button class="copy-btn" id="expandResponse" title="放大查看">⛶</button>
       <button class="copy-btn" id="copy">复制</button>
       <span class="status" id="status"></span>
